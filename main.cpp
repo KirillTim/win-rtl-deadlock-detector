@@ -103,12 +103,12 @@ int getNativeTrace(CONTEXT* ucontext, int max_depth) {
     }
     int depth = 0;
     while (depth < max_depth && is_valid_context(&ctx, stack_bounds)) {
+        last_sample_time.store(chrono::steady_clock::now());
         const void* pc = (const void*)ctx.Rip;
         depth++;
 
         uint64_t _Image_base;
         RUNTIME_FUNCTION* _Function_entry = RtlLookupFunctionEntry(ctx.Rip, &_Image_base, nullptr);
-        last_sample_time.store(chrono::steady_clock::now());
         if (_Function_entry) {
             void* _Handler_data;
             DWORD64 _Establisher_frame;
@@ -149,12 +149,13 @@ void foreverLoadDllLoop(void* ignored) {
 [[noreturn]] void samplingDeadlockMonitor(void* data) {
     HANDLE targetThread = (HANDLE) data;
     cerr << "samplingDeadlockMonitor started" << endl;
+    last_sample_time.store(chrono::steady_clock::now());
     for (;;) {
-        auto now = chrono::steady_clock::now();
-        auto duration = chrono::duration_cast<chrono::milliseconds>(now - last_sample_time.load()).count();
-        if (duration > 5000) {
-            ResumeThread(targetThread);
-            cerr << "Deadlock happened, resuming target thread" << endl;
+        auto duration = chrono::steady_clock::now() - last_sample_time.load(memory_order_relaxed);
+        if (duration > chrono::milliseconds(5000)) {
+            break;
+            //ResumeThread(targetThread);
+            //cerr << "Deadlock happened, resuming target thread" << endl;
         }
         this_thread::sleep_for(chrono::milliseconds(1000));
     }
